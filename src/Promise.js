@@ -16,7 +16,7 @@ function reject(promise, reason) {
     if (promise._state !== STATE.PENDING) return
     promise._value = reason
     promise._state = STATE.REJECTED
-    run(promise)    
+    run(promise)
 }
 
 
@@ -29,7 +29,7 @@ function Promise(executor) {
         throw TypeError(`${this.toString()} is not a Promise`)
     }
 
-    if (this._state  && this._state !== STATE.FULFILLED) {
+    if (this._state && this._state !== STATE.FULFILLED) {
         throw TypeError(`promise is unresolved`)
     }
 
@@ -50,8 +50,9 @@ function Promise(executor) {
 }
 
 function wrapCallBack(promise, callback, state) {
-    return function(value) {
+    return function (value) {
         if (typeof callback !== 'function') {
+            // 没有对调，状态和值保持不变
             if (state === STATE.REJECTED) {
                 reject(promise, value)
             } else {
@@ -72,13 +73,14 @@ function wrapCallBack(promise, callback, state) {
             return
         }
 
+        // 这段可以不要其实，下面的 then.call 就有这个作用了，照着规范写的，就放着了
         if (x instanceof Promise) {
             x.then(value => resolve(promise, value), reason => reject(promise, reason))
             return
         }
 
-        (function resolvePromise(promise, x) {
-
+        (function resolvePromise(x) { // 立即执行函数，为了再 then.call 里面递归调用
+            // typeof null 的结果是 'object'，但这里 x 不能是 null
             if (x && typeof x === 'object' || typeof x === 'function') {
                 let then
                 try {
@@ -89,11 +91,11 @@ function wrapCallBack(promise, callback, state) {
                 }
 
                 if (typeof then === 'function') {
-                    let called = false
+                    let called = false  // then.call 的两个回调只能执行一次
                     try {
                         then.call(x, y => {
                             if (!called) {
-                                resolvePromise(promise, y)
+                                resolvePromise(y)
                                 called = true
                             }
                         }, r => {
@@ -103,6 +105,7 @@ function wrapCallBack(promise, callback, state) {
                             }
                         })
                     } catch (e) {
+                        // 已经改变了 promise 的状态的时候将忽略异常
                         !called && reject(promise, e)
                     }
                 } else {
@@ -111,7 +114,7 @@ function wrapCallBack(promise, callback, state) {
             } else {
                 resolve(promise, x)
             }
-        })(promise, x)
+        })(x)
     }
 }
 
@@ -119,13 +122,16 @@ function run(promise) {
     if (promise._state === STATE.PENDING) return
     let callbacks
     if (promise._state === STATE.FULFILLED) {
-       callbacks = promise._fulfillReactions 
+        callbacks = promise._fulfillReactions
     } else {
         callbacks = promise._rejectReactions
     }
+
+    // setTimeout(cb, 0) 模仿异步（浏览器上的 then 回调并不是这样，比 setTimeout(cb, 0) 要先执行）
     setTimeout(() => {
         callbacks.forEach(cb => cb(promise._value))
     }, 0)
+    // 清空，每次调用 then 方法都会调用这个函数，不清空一个回调将会调用多次
     promise._fulfillReactions = []
     promise._rejectReactions = []
 }
@@ -135,10 +141,11 @@ Promise.prototype.then = function (onFulfilled, onRejected) {
     if (this.constructor.class !== Promise.class) {
         throw TypeError('incorrent-subclassing')
     }
-    let promise = new Promise(function(){})
+    let promise = new Promise(function () {})
     this._fulfillReactions.push(wrapCallBack(promise, onFulfilled, STATE.FULFILLED))
     this._rejectReactions.push(wrapCallBack(promise, onRejected, STATE.REJECTED))
     run(this)
+    // 返回一个新的 promise，新的 promise 的状态由当前 promise 的回调改变
     return promise
 }
 
@@ -194,7 +201,7 @@ Promise.reject = function (reason) {
     if (this.class !== Promise.class) {
         throw TypeError('incorrent-subclassing')
     }
-    let promise = new Promise(function (){})
+    let promise = new Promise(function () {})
     reject(promise, reason)
     return promise
 }
